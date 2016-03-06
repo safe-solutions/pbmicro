@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<title>PrettyBits&reg; Micro&reg;</title>
+<link href="assets/css/bootstrap.css" rel="stylesheet" />
+<link href="assets/css/prettify.css" rel="stylesheet" />
+<script type = "text/javascript" src = "assets/js/jquery-1.11.2.min.js"></script>
+<script type = "text/javascript" src = "assets/js/bootstrap.min.js"></script>
+</head>
+<body>
+<h1>Полная документация к PrettyBits&reg; Micro&reg;</h1>
+<h2>Системные требования</h2>
+PHP 5.4, MySQL
+<h2>Структура приложения</h2>
+Папки <code>/app</code> и <code>/system</code> защищены от чтения файлом .htaccess (deny from all), поэтому
+папка <code>/assets</code>, хоть по сути и относится к приложению, вынесена отдельно.
+Фреймворк состоит из одного файла - <code>/system/PBMicro.php</code>.
+<h2>Классы</h2>
+Все экземпляры классов в PB Micro создаются только функцией <code>КЛАСС::instance()</code>, нельзя использовать <b>new</b>.
+Это сделано из-за того, что классы наследуются либо от SingleModel, либо от MultipleModel. Чтобы не задумываться о типе класса,
+как раз и используется <b>instance()</b>. Вместо конструкторов для инициализации параметров классов используется метод init().
+<h2>Трейты</h2>
+<h3>AnyCall</h3>
+Это самый полезный трейт в PB Micro. Он позволяет обращаться к методам класса как статически, так и динамически. Также он
+реализует условия в объектах. К сожалению, из-за особенностей языка PHP есть ограничение:
+<pre class="prettyprint">
+/* Так нельзя - будет ошибка */
+SomeClass::if($x > 2)
+		->find(1)
+	->else()
+		->find(2)
+	->endif();
+/* Так можно */
+SomeClass::instance()
+	->if($x > 2)
+		->find(1)
+	->else()
+		->find(2)
+	->endif();
+/* Так тоже можно */
+SomeClass::find(1);
+</pre>
+Т.е. нельзя использовать именно ключевые слова PHP после ::
+<h2>Роутинг</h2>
+<p>
+Для запуска PB Micro необходимо использовать примерно такую конструкцию (см. index.php):
+<pre class="prettyprint">
+require_once 'system/PBMicro.php';
+
+Router::map(['get', 'post'], '{id}', ['as'=>'main'], function($request) {
+	echo 'ID ' . $request->id;
+	echo Router::url('article_view', ['id'=>'1']);
+});
+
+Router::map('get', 'articles/{id}', ['as'=>'article_view'], 'index@ArticleController');
+Router::map('get', '/categories(/{page})', ['as'=>'category_index', 'rules'=>['page'=>'\d*']], 'index@CategoryController');
+
+$app->configure(['app/config/database.php', 'app/config/main.php'])->bind('Db', 'db')->run();
+</pre>
+</p>
+<p>
+<h3>Router::map($methods, $url, $options, $callback)</h3>
+<i>Добавляет в роутер новый адрес.</i>
+<p>
+$methods - разрешенные методы вызова (например, get, post). Если метод один, его можно указывать как строку. Если несколько, то
+методы указываются как массив.<br>
+$url - вид URL. Необязательные параметры заключаются в скобки вместе со слэшем: (/{page})<br>
+$options:
+<ul>
+	<li>as - псевдоним адреса.</li>
+	<li>rules - регулярное выражение для параметра.</li>
+</ul>
+$callback - функция-замыкание или строка вида метод_класса@имя_класса.
+</p>
+<p>
+Вызываемая функция может содержать параметр $request. Тогда в него передаются значения из адресной строки.
+</p>
+<h3>Router::url($alias, $values = [])</h3>
+<i>Возвращает адрес для псевдонима.</i>
+<p>
+$alias - псевдоним.<br>
+$values - значения.
+</p>
+<b>Важно!</b> Следует иметь в виду, что роутер не учитывает символ '?' и строку после него.
+<h2>Конфигурация приложения</h2>
+Пример конфигурации приложения (/app/config/main.php):
+<pre class="prettyprint">
+Config::section('main')
+	->set('include_paths', ['app/controllers', 'app/models'])
+	->set('theme', 'default');
+</pre>
+Считывать конфигурацию можно методом get().
+<h2>Класс приложения</h2>
+Класс Application предназначен для основной настройки приложения.<br>
+configure() включает файлы конфигурации.<br>
+bind() создает псевдоним для некоторых классов. Пример удобного использования:
+<pre class="prettyprint">
+$app->configure(['app/config/database.php', 'app/config/main.php'])->bind('Db', 'db')->run();
+</pre>
+Если разработчик захочет использовать другую модель для базы данных, ему достаточно будет изменить одну строчку:
+<pre class="prettyprint">
+$app->configure(['app/config/database.php', 'app/config/main.php'])->bind('MyDb', 'db')->run();
+</pre>
+При этом в других классах ничего менять не нужно. Пример (класс DataModel):
+<pre class="prettyprint">
+$this->db = Application::instance()->db;
+</pre>
+<h2>Модели данных</h2>
+<p>
+В PB Micro используется MicroDataModel (облегченная версия DataModel из PrettyBits).
+<pre class="prettyprint">
+echo Article::find(1)->title; //выведет заголовок статьи с id=1
+Article::where('views<100')->get(); //выбрать все статьи с views<100 (так не рекомендуется делать - могут быть SQL-инъекции)
+Article::where('views', '<', '100')->get(); //выбрать все статьи с views<100 (рекомендуется такой способ)
+Article::where('views', '1')->get(); //выбрать все статьи с views=1
+Article::where('id', 'IN', [1, 2, 3])->where('views', '<', 100)->get(); //выбрать все статьи с id IN (1, 2, 3) и views<100
+
+/* Если используется foreach, не нужно писать get(), выборка будет сделана автоматически при начале итерации */
+foreach (Article::where('id', 'IN', [1, 2, 3]) as $article)
+	echo $article->title;
+
+Article::where('views', '<', 5)->skip(1)->take(2)->get(); //выбрать 2 статьи с views<5, пропустив 1 статью (LIMIT 1, 2)
+Article::where_open()->where('id', '=', 1)->or()->where('id', '=', 2)->where_close()->where_open()->where('views', '<', 100)->where_close()->get(); //SELECT * FROM articles WHERE ( id = :id OR id = :id_1) AND ( views < :views)
+Article::order(['views'=>'DESC', 'id'=>'ASC'])->get(); //SELECT * FROM articles ORDER BY views DESC , id ASC
+
+/* Использование count() */
+$articles = Article::where('id', '<', 5);
+	if ($articles->count() > 5)
+		foreach ($articles as $article)
+			print_r($article);
+
+print_r(Article::where('id', 1)->first()); //вывести статью с id=1
+
+print_r(Category::find(1)->articles()); //возвращает все статьи из категории 1
+print_r(Article::find(1)->category()); //возвращает категорию статьи 1
+
+/* Выводит первые 5 статей из категории 1 */
+foreach (Category::find(1)->articles()->take(5) as $article)
+	print_r($article);
+
+var_dump(Category::find(5)->exists()); //проверка существования категории
+
+echo Category::find(2)->articles()->count(); //количество статей в категории 2
+
+/* Создает статью в категории */
+$article = Category::find(2)->articles()->create();
+$article->title = 'Article';
+$article->article = 'Content';
+$article->url = 'article';
+$article->save();
+</pre>
+Для работы отношений has_many и belongs_to нужно определить их в моделях:
+<pre class="prettyprint">
+/* Модель Article */
+class Article extends DataModel
+{
+	protected $_table = 'articles';
+	
+	public function category()
+	{
+		return $this->belongs_to('Category');
+	}
+}
+
+/* Модель Category */
+class Category extends DataModel
+{
+	protected $_table = 'categories';
+	
+	public function articles()
+	{
+		return $this->has_many('Article');
+	}
+}
+</pre>
+Описание метода has_many выглядит так: has_many($model, $outward_field = null, $inward_field = null)<br>
+<pre class="prettyprint">
+public function articles()
+{
+	return $this->has_many('Article', 'category_id', 'id'); //привязать модель Article, используя <u>ее</u> поле category_id и <u>собственное</u> поле id
+}
+</pre>
+По умолчанию $outward_field = имя_собственной_модели_с_маленькой_буквы_id, $inward_field = собственная_модель->get_primary().<br><br>
+Описание метода belongs_to выглядит так: belongs_to($model, $inward_field = null, $outward_field = null)<br>
+<pre class="prettyprint">
+public function category()
+{
+	return $this->belongs_to('Category', 'category_id', 'id'); //привязать модель Category, используя <u>собственное</u> поле category_id и <u>ее</u> поле id
+}
+</pre>
+По умолчанию $inward_field = имя_привязываемой_модели_с_маленькой_буквы_id, $outward_field = привязываемая_модель->get_primary().
+</p>
+<p>
+Важное отличие has_many от belongs_to в том, что has_many возвращает исходный объект с результатами для итератора, а belongs_to
+возвращает сразу требуемый объект.
+</p>
+Теперь рассмотрим функции для изменения данных.
+<pre class="prettyprint">
+/* Изменение категории в статье 1 */
+$art = Article::find(1);
+$art->category_id = 2;
+$art->save();
+
+/* Изменение id статьи 1 */
+$art = Article::find(1);
+$art->id = 2;
+$art->save();
+
+/* Изменение с условием (см. пояснение ниже) */
+$art = Article::find(1);
+$art->views = 100;
+$art->need('views', '<', 100)->save();
+
+/* Списание с баланса пользователя - пример */
+do {
+	$user = User::find(1);
+	$current_balance = $user->balance;
+	$user->balance -= $sum;
+} while (!$user->need('balance', $current_balance)->save());
+
+/* Создание статьи */
+$art = Article::create(['category_id'=>'1', 'title'=>'Заголовок']);
+/* В модели Article задано protected $_autofill = ['title'];, поэтому заполнено будет только поле title - это очень удобно при создании объекта из $_POST */
+
+/* В данном примере создается статья, далее изменяется только что созданная статья */
+$art = Article::create(['title'=>'Заголовок']);
+$art->category_id = 1;
+$art->article = 'Статья';
+$art->url = 'article_10';
+$art->save();
+$art->views = 5;
+$art->save();
+
+Article::find(1)->delete(); //удалить статью 1
+</pre>
+<h4>Для чего нужно изменение с условием</h4>
+В проектах, в которых возможно одновременное изменение строки в таблице (простой пример - пополнение баланса/списание с баланса),
+иногда требуется контролировать значение поля при сохранении (например, чтобы нельзя было списать с баланса сумму, большую
+чем есть на балансе). Для этого и применяется метод need(). Он работает аналогично where() и поддерживает or(), но применяется
+при изменении данных.
+<h3>Выполнение любых запросов к базе данных</h3>
+<p>
+<pre class="prettyprint">
+$stm = $app->db->raw()->prepare("SELECT * FROM articles WHERE id=:id");
+$stm->execute(['id'=>1]);
+print_r($stm->fetch());
+
+//из контроллеров можно вызвать так:
+$pdo = Application::instance()->db->raw();
+</pre>
+</p>
+<h2>Шаблоны</h2>
+<pre class="prettyprint">
+class ArticleController extends Controller
+{
+	public function action_index($request)
+	{
+		$article = Article::find($request->id);
+		TemplateView::template([
+				'content'=>'article/view',   //сохранить article/view.php в $content
+				'main'=>'default'            //использовать default.php с $content
+			])
+			->bind('title', $article->title) //добавить $title = $article->title
+			->bind('article', $article)
+			->compile()                      //компиляция шаблона
+			->display();                     //отображение
+	}
+}
+</pre>
+Метод fetch() позволяет сохранить откомпилированный шаблон в переменную.
+<script type="text/javascript" src="assets/js/run_prettify.js"></script>
+</body>
+</html>
